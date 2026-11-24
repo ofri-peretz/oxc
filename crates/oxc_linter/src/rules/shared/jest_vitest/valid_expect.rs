@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use oxc_ast::{AstKind, ast::Expression};
 use oxc_diagnostics::OxcDiagnostic;
-use oxc_semantic::ScopeId;
+use oxc_semantic::NodeId;
 use oxc_span::{GetSpan, Span};
 use oxc_str::JSStr;
 use rustc_hash::FxHashSet;
@@ -136,7 +136,7 @@ impl ValidExpectConfig {
         let mut possible_jest_nodes: Vec<_> =
             iter_possible_jest_call_node_with_wrappers(ctx, self.supports_vitest_syntax).collect();
         possible_jest_nodes.sort_unstable_by_key(|node| node.node.id());
-        let mut fixed_function_expression: FxHashSet<ScopeId> = FxHashSet::default();
+        let mut fixed_function_expression: FxHashSet<NodeId> = FxHashSet::default();
 
         for jest_node in possible_jest_nodes {
             self.run(&jest_node, &mut fixed_function_expression, ctx);
@@ -147,7 +147,7 @@ impl ValidExpectConfig {
     fn run<'a>(
         &self,
         possible_jest_node: &PossibleJestNode<'a, '_>,
-        fixed_function_expression: &mut FxHashSet<ScopeId>,
+        fixed_function_expression: &mut FxHashSet<NodeId>,
         ctx: &LintContext<'a>,
     ) {
         let node = possible_jest_node.node;
@@ -250,7 +250,7 @@ impl ValidExpectConfig {
                     return fixer.noop();
                 };
 
-                let function_scope_id = function_scope_node.scope_id();
+                let function_id = function_scope_node.id();
 
                 let multifixer = fixer.for_multifix();
 
@@ -261,13 +261,13 @@ impl ValidExpectConfig {
                 };
 
                 let needs_async =
-                    !fixed_function_expression.contains(&function_scope_id) && !is_async_function;
+                    !fixed_function_expression.contains(&function_id) && !is_async_function;
                 let capacity = if needs_async { 2 } else { 1 };
 
                 let mut fixes = multifixer.new_fix_with_capacity(capacity);
 
                 if needs_async {
-                    fixed_function_expression.insert(function_scope_id);
+                    fixed_function_expression.insert(function_id);
 
                     let context_function = ctx.nodes().parent_node(function_scope_node.id());
 

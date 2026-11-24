@@ -370,6 +370,18 @@ fn test() {
 
     let fix = vec![
         (
+            "test('a', () => { expect(Promise.resolve(1)).resolves.toBe(1); });
+test('b', () => { expect(Promise.resolve(2)).resolves.toBe(2); });",
+            "test('a', async () => { await expect(Promise.resolve(1)).resolves.toBe(1); });
+test('b', async () => { await expect(Promise.resolve(2)).resolves.toBe(2); });",
+            None,
+        ),
+        (
+            "describe('d', () => { it('a', function () { expect(p).rejects.toThrow(); }); it('b', function () { expect(p).resolves.toBe(1); expect(q).resolves.toBe(2); }); });",
+            "describe('d', () => { it('a', async function () { await expect(p).rejects.toThrow(); }); it('b', async function () { await expect(p).resolves.toBe(1); await expect(q).resolves.toBe(2); }); });",
+            None,
+        ),
+        (
             "
                  expect.extend({
                    toResolve(obj) {
