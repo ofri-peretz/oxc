@@ -2,6 +2,34 @@
 source: crates/oxc_linter/src/tester.rs
 ---
 
+  ⚠ eslint(constructor-super): Expected to call `super()`.
+   ╭─[constructor_super.tsx:1:21]
+ 1 │ class A extends B { constructor() { return; } }
+   ·                     ─────────────────────────
+   ╰────
+  help: Add a `super()` call to the constructor
+
+  ⚠ eslint(constructor-super): Expected to call `super()`.
+   ╭─[constructor_super.tsx:1:21]
+ 1 │ class A extends B { constructor() { if (a) { throw new Error(); } } }
+   ·                     ───────────────────────────────────────────────
+   ╰────
+  help: Add a `super()` call to the constructor
+
+  ⚠ eslint(constructor-super): Expected to call `super()`.
+   ╭─[constructor_super.tsx:1:21]
+ 1 │ class A extends B { constructor() { try { throw new Error(); } catch {} } }
+   ·                     ─────────────────────────────────────────────────────
+   ╰────
+  help: Add a `super()` call to the constructor
+
+  ⚠ eslint(constructor-super): Expected to call `super()`.
+   ╭─[constructor_super.tsx:1:21]
+ 1 │ class A extends B { constructor() { try { foo(); } catch { throw new Error(); } } }
+   ·                     ─────────────────────────────────────────────────────────────
+   ╰────
+  help: Add a `super()` call to the constructor
+
   ⚠ eslint(constructor-super): Unexpected `super()` because `super` is not a constructor.
    ╭─[constructor_super.tsx:1:40]
  1 │ class A extends null { constructor() { super(); } }

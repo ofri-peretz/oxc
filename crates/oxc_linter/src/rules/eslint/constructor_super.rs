@@ -265,13 +265,18 @@ impl Rule for ConstructorSuper {
                 }
             }
             SuperClassType::Valid => {
-                if super_call_counts.is_empty() {
-                    ctx.diagnostic(missing_super_all(constructor.span));
-                    return;
-                }
-
                 let path_results =
                     Self::analyze_super_paths(cfg, constructor_block_id, &super_call_counts);
+
+                if super_call_counts.is_empty() {
+                    // Without `super()`, the constructor is still fine when it never completes
+                    // normally: every path throws or returns a value, e.g.
+                    // `constructor() { throw new TypeError("Illegal constructor"); }`.
+                    if path_results.iter().any(|r| matches!(r, PathResult::NoSuper)) {
+                        ctx.diagnostic(missing_super_all(constructor.span));
+                    }
+                    return;
+                }
 
                 if path_results.is_empty() {
                     // Treat as single path
@@ -533,7 +538,18 @@ impl ConstructorSuper {
                 )
             });
 
-            if has_exit {
+            // A `throw` inside `try { ... } catch` doesn't leave the constructor: it continues
+            // in the catch block, which the explicit error edge below follows.
+            let is_caught_throw = has_exit
+                && block
+                    .instructions()
+                    .iter()
+                    .any(|inst| matches!(inst.kind, oxc_cfg::InstructionKind::Throw))
+                && cfg.graph.edges_directed(block_id, Direction::Outgoing).any(|edge| {
+                    matches!(edge.weight(), EdgeType::Error(oxc_cfg::ErrorEdgeKind::Explicit))
+                });
+
+            if has_exit && !is_caught_throw {
                 let is_acceptable_exit = block.instructions().iter().any(|inst| {
                     matches!(
                         inst.kind,
@@ -825,6 +841,14 @@ fn test() {
         "class A extends B { constructor() { try {} finally { super(); } } }",
         "class A extends B { constructor() { if (a) throw Error(); super(); } }",
         "class A extends B { constructor() { if (true) return a; super(); } }",
+        // no path completes normally, so super() is never needed
+        "class A extends B { constructor() { throw new TypeError('Illegal constructor'); } }",
+        "class A extends B { constructor() { return {}; } }",
+        "class A extends B { constructor(a) { if (a) throw new Error(); else return {}; } }",
+        "class A extends B { constructor() { try { throw new Error(); } finally {} } }",
+        "class A extends B { constructor() { try { throw e; } catch { throw f; } } }",
+        "class A extends B { constructor() { try { throw e; } catch {} super(); } }",
+        "class A extends B { constructor() { try { return {}; } catch { throw f; } } }",
         "class A extends null { constructor() { return a; } }",
         "class A { constructor() { return a; } }",
         "class A extends B { constructor(a) { super(); for (const b of a) { this.a(); } } }",
@@ -904,6 +928,11 @@ fn test() {
     ];
 
     let fail = vec![
+        // some path still completes normally without super()
+        "class A extends B { constructor() { return; } }",
+        "class A extends B { constructor() { if (a) { throw new Error(); } } }",
+        "class A extends B { constructor() { try { throw new Error(); } catch {} } }",
+        "class A extends B { constructor() { try { foo(); } catch { throw new Error(); } } }",
         "class A extends null { constructor() { super(); } }",
         "class A extends null { constructor() { } }",
         "class A extends 100 { constructor() { super(); } }",
