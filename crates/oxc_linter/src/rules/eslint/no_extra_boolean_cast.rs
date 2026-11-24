@@ -292,7 +292,9 @@ fn replacement_text(
     ctx: &LintContext,
     replacement_text: &str,
 ) -> String {
-    let mut text = if needs_parentheses(replacement, target, ctx) {
+    let mut text = if needs_parentheses(replacement, target, ctx)
+        || is_ambiguous_at_start(replacement_text, target, ctx)
+    {
         format!("({replacement_text})")
     } else {
         replacement_text.to_string()
@@ -301,6 +303,42 @@ fn replacement_text(
     pad_fix_with_token_boundary(ctx.source_text(), target.kind().span(), &mut text);
 
     text
+}
+
+/// `{`, `function` and `class` at the start of an expression statement begin a block or a
+/// declaration, and `{` at the start of an arrow body begins a block, so the replacement must
+/// be parenthesized there: `Boolean({ a: 1 }) ? b : c;` -> `({ a: 1 }) ? b : c;`.
+fn is_ambiguous_at_start(replacement_text: &str, target: &AstNode, ctx: &LintContext) -> bool {
+    let starts_with_keyword = |keyword: &str| {
+        replacement_text.strip_prefix(keyword).is_some_and(|rest| {
+            !rest.starts_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+        })
+    };
+    let starts_with_brace = replacement_text.starts_with('{');
+    let starts_with_declaration = starts_with_keyword("function")
+        || starts_with_keyword("class")
+        || replacement_text.strip_prefix("async").is_some_and(|rest| {
+            rest.trim_start().strip_prefix("function").is_some_and(|rest| {
+                !rest.starts_with(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+            })
+        });
+    if !starts_with_brace && !starts_with_declaration {
+        return false;
+    }
+
+    let start = target.kind().span().start;
+    for ancestor in ctx.nodes().ancestors(target.id()) {
+        match ancestor.kind() {
+            AstKind::ExpressionStatement(stmt) => return stmt.span.start == start,
+            AstKind::ArrowFunctionExpression(arrow) => {
+                return starts_with_brace
+                    && arrow.get_expression().is_some_and(|body| body.span().start == start);
+            }
+            kind if kind.span().start == start => {}
+            _ => return false,
+        }
+    }
+    false
 }
 
 fn needs_parentheses(replacement: &Expression, target: &AstNode, ctx: &LintContext) -> bool {
@@ -1535,6 +1573,24 @@ fn test() {
     ];
 
     let fix = vec![
+        ("Boolean({ a: 1 }) ? b : c;", "({ a: 1 }) ? b : c;", None),
+        ("const f = () => Boolean({ a: 1 }) ? b : c;", "const f = () => ({ a: 1 }) ? b : c;", None),
+        ("Boolean(function() {}) ? b : c;", "(function() {}) ? b : c;", None),
+        ("Boolean(async function() {}) ? b : c;", "(async function() {}) ? b : c;", None),
+        ("Boolean(class {}) ? b : c;", "(class {}) ? b : c;", None),
+        (
+            "Boolean({ a: 1 }) && foo() ? b : c;",
+            "({ a: 1 }) && foo() ? b : c;",
+            Some(serde_json::json!([{ "enforceForInnerExpressions": true }])),
+        ),
+        ("!!{ a: 1 } ? b : c;", "({ a: 1 }) ? b : c;", None),
+        ("x = Boolean({ a: 1 }) ? b : c;", "x = { a: 1 } ? b : c;", None),
+        (
+            "const g = () => Boolean(functionName) ? b : c;",
+            "const g = () => functionName ? b : c;",
+            None,
+        ),
+        ("Boolean(classes) ? b : c;", "classes ? b : c;", None),
         ("while (Boolean?.(foo)) {}", "while (foo) {}", None),
         ("if (!!foo) {}", "if (foo) {}", None),
         ("do {} while (!!foo)", "do {} while (foo)", None),
